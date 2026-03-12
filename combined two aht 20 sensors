@@ -1,0 +1,146 @@
+/*
+================================================================================
+ESP32 WATER TANK MONITOR WITH LoRa TRANSMISSION
+================================================================================
+Author: Your Name
+Date: [Current Date]
+Hardware: ESP32, AHT20, HC-SR04, 20x4 LCD, SX1278 LoRa
+
+================================================================================
+CONFIGURATION NOTES:
+================================================================================
+
+TIMING PARAMETERS (All in milliseconds - MS):
+-------------------------------------------------------------------------------
+- SENSOR_READ_INTERVAL    = 2000      (2 seconds)    → How often to read sensors
+- LORA_TX_INTERVAL        = 10000     (10 seconds)   → How often to transmit via LoRa
+- DISPLAY_UPDATE_INTERVAL = 1000      (1 second)     → How often to update LCD
+- STATUS_PRINT_INTERVAL   = 5000      (5 seconds)    → How often to print serial status
+
+TO CHANGE TRANSMISSION TO EVERY HOUR:
+-------------------------------------------------------------------------------
+Change: const unsigned long LORA_TX_INTERVAL = 3600000;  // 1 hour = 60 * 60 * 1000 ms
+
+OTHER ADJUSTABLE PARAMETER(s):
+-------------------------------------------------------------------------------
+1. TANK DIMENSIONS (cm) - Change for your tank:
+   - TANK_WIDTH_CM, TANK_LENGTH_CM, TANK_HEIGHT_CM
+   
+2. LoRa SETTINGS - Match with receiver:
+   - LORA_FREQUENCY (433, 868, 915 MHz based on region)
+   - LORA_OUTPUT_POWER (2-20 dBm - lower saves power)
+   - LORA_SPREADING_FACTOR (7-12 - higher = longer range, slower)
+   
+3. DISPLAY MODES - Toggle with button:
+   - Mode 0: Temperature & Humidity
+   - Mode 1: Water Volume & Percentage
+================================================================================*/
+#include <Arduino.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <ESP32Servo.h>
+
+// Enable a quick debug transmit mode for testing (set to 1 to enable)
+#define DEBUG_TX_TEST 0  // ← DISABLED FOR COMMAND TESTING (no sensor broadcasts)
+// NOTE: Set back to 1 to re-enable 5-second sensor broadcasts
+#include <Adafruit_AHTX0.h>
+#include <NewPing.h>
+#include <LiquidCrystal_I2C.h>
+#include <RadioLib.h>
+#include <PCF8575.h> 
+
+
+
+
+// Function definition BEFORE setup
+/*
+================================================================================
+Combined AHT20 Diagnostic for Two Sensors on Separate I2C Buses
+- First AHT20 on Wire (pins 21/22)
+- Second AHT20 on Wire1 (pins 32/33)
+================================================================================
+*/
+
+#include <Wire.h>
+#include <Adafruit_AHTX0.h>
+
+// I2C pin definitions (matching your project)
+#define I2C_SDA       21
+#define I2C_SCL       22
+#define I2C2_SDA      32
+#define I2C2_SCL      33
+
+Adafruit_AHTX0 aht1;  // first sensor on Wire
+Adafruit_AHTX0 aht2;  // second sensor on Wire1
+
+bool aht1_ok = false;
+bool aht2_ok = false;
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\n=== Combined AHT20 Diagnostic ===");
+
+  // Initialize first I2C bus (Wire)
+  Wire.begin(I2C_SDA, I2C_SCL);
+  Wire.setClock(100000);
+  Serial.println("Wire (21/22) initialized.");
+
+  // Initialize second I2C bus (Wire1)
+  Wire1.begin(I2C2_SDA, I2C2_SCL);
+  Wire1.setClock(100000);
+  Serial.println("Wire1 (32/33) initialized.\n");
+
+  // Try to initialize first AHT20 on Wire
+  if (!aht1.begin()) {
+    Serial.println("❌ AHT20 #1 not found on Wire.");
+  } else {
+    Serial.println("✅ AHT20 #1 detected on Wire.");
+    aht1_ok = true;
+  }
+
+  // Try to initialize second AHT20 on Wire1
+  if (!aht2.begin(&Wire1)) {  // Note: &Wire1 specifies second bus
+    Serial.println("❌ AHT20 #2 not found on Wire1.");
+  } else {
+    Serial.println("✅ AHT20 #2 detected on Wire1.");
+    aht2_ok = true;
+  }
+
+  Serial.println("\n--- Starting continuous readings (every 2 seconds) ---\n");
+}
+
+void loop() {
+  sensors_event_t humidity, temp;
+
+  if (aht1_ok) {
+    if (aht1.getEvent(&humidity, &temp)) {
+      Serial.print("Sensor #1 (Wire) -> Temp: ");
+      Serial.print(temp.temperature);
+      Serial.print(" °C, Humidity: ");
+      Serial.print(humidity.relative_humidity);
+      Serial.println(" %");
+    } else {
+      Serial.println("❌ Failed to read AHT20 #1");
+    }
+  }
+
+  if (aht2_ok) {
+    if (aht2.getEvent(&humidity, &temp)) {
+      Serial.print("Sensor #2 (Wire1) -> Temp: ");
+      Serial.print(temp.temperature);
+      Serial.print(" °C, Humidity: ");
+      Serial.print(humidity.relative_humidity);
+      Serial.println(" %");
+    } else {
+      Serial.println("❌ Failed to read AHT20 #2");
+    }
+  }
+
+  if (!aht1_ok && !aht2_ok) {
+    Serial.println("No AHT20 sensors detected.");
+  }
+
+  Serial.println();
+  delay(2000);
+}
